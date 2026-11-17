@@ -8,7 +8,10 @@
 // `node -e` and any other program that is not a known reader.
 //
 // Allowed: reading (`cat`, `Get-Content`, `ls`, `grep`, `git diff|log|show`,
-// `git add`, `sed -n 1,20p` – sed only printing line ranges, never with `-i`),
+// `git add`) – but never `sed`, not even `sed -n`: its options can be
+// smuggled in by expansion (`{-i,}`, a quoted `-i`, a variable holding it), so a
+// shell read of `.claude` with sed is blocked; agents read with the Read and
+// Grep tools,
 // running a hook script (`node .claude/hooks/<name>.mjs`) and
 // everything inside an agent worktree (`.claude/worktrees/<name>/`), except
 // that worktree's own `.claude/`; the worktree exception never applies to a
@@ -123,11 +126,6 @@ const READER_WRITES = {
   rg: /\s--pre(?=[\s=]|$)/i,
   tree: /\s-o(?=\s|$)/,
 };
-// `sed` reads when it only prints line ranges (`sed -n 1,20p`, `sed -n '$p'`,
-// `sed 10q`) with options that never write: no `-i`, `-f`, `w` or `e`.
-const SED_READ_OPTION =
-  /^(?:-[nErsuz]+|--quiet|--silent|--regexp-extended|--separate|--unbuffered|--null-data)$/;
-const SED_PRINT_SCRIPT = /^(?:(?:\d+|\$)(?:,(?:\d+|\$))?[pq=](?:;|$))+$/;
 // Programs that run what they read (`echo 'rm .claude/x' | bash`, `| xargs rm`).
 const STDIN_RUNNERS = new Set([
   "bash",
@@ -152,27 +150,6 @@ const STDIN_RUNNERS = new Set([
 ]);
 /** The program name of a word, without `.exe` / `.cmd`. */
 const programOf = (word) => baseName(word ?? "").replace(/\.(?:exe|cmd)$/, "");
-
-/** True for `sed` that only prints line ranges (quotes removed as the shell does). */
-function isReadOnlySed(segmentWords) {
-  let script = false;
-
-  for (let i = 1; i < segmentWords.length; i += 1) {
-    const word = segmentWords[i].replace(/["']/g, "");
-
-    if (word === "-e" || word === "--expression") {
-      i += 1;
-      if (!SED_PRINT_SCRIPT.test((segmentWords[i] ?? "").replace(/["']/g, ""))) return false;
-      script = true;
-    } else if (word.startsWith("-")) {
-      if (!SED_READ_OPTION.test(word)) return false;
-    } else if (!script) {
-      if (!SED_PRINT_SCRIPT.test(word)) return false;
-      script = true;
-    }
-  }
-  return script;
-}
 
 /** The words of a segment after `git` and its `-C`/`-c` options. */
 function gitSubcommand(segmentWords) {
@@ -215,7 +192,6 @@ function isReadOnly(segment) {
 
   if (READER_WRITES[program]?.test(segment)) return false;
   if (READERS.has(program)) return true;
-  if (program === "sed") return isReadOnlySed(segmentWords);
   if (program === "code" || program === "code-insiders") return true;
   if (program === "eslint" || program === "prettier") return isChecker(program, segment);
   if (RUNNERS.has(program)) {

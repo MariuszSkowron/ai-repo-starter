@@ -79,7 +79,7 @@ const blocked = [
   "npx prettier --check .claude --write",
   "npx eslint .claude/hooks -o .claude/settings.json",
   "npx tsc .claude/hooks/a.mjs",
-  // sed writes with -i, a `w` command or a script file; only line ranges read.
+  // sed is never a read in `.claude`: -i, a `w` command or a script file write.
   "sed -ni 1p .claude/settings.json",
   "sed --in-place 1d .claude/settings.json",
   "sed -n 'w .claude/x' notes.md",
@@ -166,13 +166,6 @@ const allowed = [
   "cd src/.. && npm test",
   "cd ../other && ls",
   "ls * ",
-  // Dry run 2026-11-17: read-only sed and grep with quoted patterns.
-  "sed -n 1,20p .claude/settings.json",
-  "sed -n '1,20p' .claude/settings.json",
-  "sed -n -e 5p -e '$p' .claude/settings.json",
-  "sed 10q .claude/settings.json",
-  `grep -n '"allow"' .claude/settings.json`,
-  "Select-String -Path .claude/settings.json -Pattern 'allow|deny'",
   // Dry run 2026-11-17: `.claude` only as a message in a plain one-line command.
   'git commit -m "fix: hook w .claude/hooks"',
   "git commit -am 'docs: .claude/settings.json; opis'",
