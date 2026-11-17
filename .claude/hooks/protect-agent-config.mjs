@@ -8,7 +8,8 @@
 // `node -e` and any other program that is not a known reader.
 //
 // Allowed: reading (`cat`, `Get-Content`, `ls`, `grep`, `git diff|log|show`,
-// `git add`), running a hook script (`node .claude/hooks/<name>.mjs`) and
+// `git add`, `sed -n 1,20p` – sed only printing line ranges, never with `-i`),
+// running a hook script (`node .claude/hooks/<name>.mjs`) and
 // everything inside an agent worktree (`.claude/worktrees/<name>/`), except
 // that worktree's own `.claude/`; the worktree exception never applies to a
 // path with `..` (`.claude/worktrees/../settings.json`). Also allowed:
@@ -16,6 +17,19 @@
 // .claude`, without --fix / --write) and `code <file>`. `.mcp.json` gets the
 // same protection as `.claude/`, and a `cd` through a glob or `..` that can
 // land in `.claude` counts as entering it.
+//
+// Text that is only data does not count as a mention (lib/shell-text.mjs,
+// "Data inside a command"): the quoted message of `git commit -m` and of
+// `gh pr|issue create|edit|comment --title/--body`, the body of a heredoc read
+// by `cat` (a run log: `cat > .ai/runs/x.md <<'EOF'`), and separators inside
+// the quoted arguments of a reader (`grep '"allow"\|"deny"' ...`). A heredoc
+// body line is still blocked when it reads like a write into `.claude`
+// (`> .claude/...`, `cp`, `rm`, `sed`, `node`, `cd` ...), because the saved
+// file may be run later. With ambiguous quoting (backticks, `$(`, `\"`, an
+// unclosed quote) nothing counts as data and the strict rules apply.
+// Also blocked: an interpreter in a command that mentions `.claude` (`echo
+// 'rm .claude/x' | bash`, `| xargs rm`, `| iex`) and the writing options of
+// readers (`git diff --output`, `rg --pre`, `tree -o`).
 //
 // Rule: AGENTS.md ("Zasady") and docs/agent-workflow.md — the owner changes
 // agent settings by hand (or lifts this rule for the moment of the change);
@@ -32,6 +46,8 @@ import {
   baseName,
   detectionVariants,
   globToRegExp,
+  maskShellData,
+  separateHeredocs,
   splitSegments,
   words,
 } from "./lib/shell-text.mjs";
@@ -101,6 +117,107 @@ const GIT_READS = new Set([
   "add",
 ]);
 const FIND_WRITES = /\s-(?:delete|exec|execdir|ok|okdir|fprint\w*|fls)\b/i;
+// Options with which a reader writes a file or runs a program.
+const READER_WRITES = {
+  git: /\s--output\b/i,
+  rg: /\s--pre(?=[\s=]|$)/i,
+  tree: /\s-o(?=\s|$)/,
+};
+// `sed` reads when it only prints line ranges (`sed -n 1,20p`, `sed -n '$p'`,
+// `sed 10q`) with options that never write: no `-i`, `-f`, `w` or `e`.
+const SED_READ_OPTION =
+  /^(?:-[nErsuz]+|--quiet|--silent|--regexp-extended|--separate|--unbuffered|--null-data)$/;
+const SED_PRINT_SCRIPT = /^(?:(?:\d+|\$)(?:,(?:\d+|\$))?[pq=](?:;|$))+$/;
+// Programs that run what they read (`echo 'rm .claude/x' | bash`, `| xargs rm`).
+const STDIN_RUNNERS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+  "pwsh",
+  "powershell",
+  "cmd",
+  "node",
+  "python",
+  "python3",
+  "py",
+  "perl",
+  "ruby",
+  "iex",
+  "invoke-expression",
+  "xargs",
+  "source",
+  ".",
+]);
+// A heredoc body line that starts with one of these and mentions `.claude` is
+// blocked: the saved file may be run later.
+const WRITERS = new Set([
+  ...STDIN_RUNNERS,
+  ...CHANGE_DIRECTORY,
+  "cp",
+  "mv",
+  "rm",
+  "rmdir",
+  "rd",
+  "del",
+  "erase",
+  "copy",
+  "move",
+  "ren",
+  "ln",
+  "mklink",
+  "touch",
+  "tee",
+  "sed",
+  "awk",
+  "install",
+  "rsync",
+  "chmod",
+  "truncate",
+  "dd",
+  "git",
+  "npx",
+  "npm",
+  "set-content",
+  "add-content",
+  "clear-content",
+  "out-file",
+  "copy-item",
+  "cpi",
+  "move-item",
+  "mi",
+  "remove-item",
+  "ri",
+  "rename-item",
+  "rni",
+  "new-item",
+  "ni",
+]);
+
+/** The program name of a word, without `.exe` / `.cmd`. */
+const programOf = (word) => baseName(word ?? "").replace(/\.(?:exe|cmd)$/, "");
+
+/** True for `sed` that only prints line ranges (quotes removed as the shell does). */
+function isReadOnlySed(segmentWords) {
+  let script = false;
+
+  for (let i = 1; i < segmentWords.length; i += 1) {
+    const word = segmentWords[i].replace(/["']/g, "");
+
+    if (word === "-e" || word === "--expression") {
+      i += 1;
+      if (!SED_PRINT_SCRIPT.test((segmentWords[i] ?? "").replace(/["']/g, ""))) return false;
+      script = true;
+    } else if (word.startsWith("-")) {
+      if (!SED_READ_OPTION.test(word)) return false;
+    } else if (!script) {
+      if (!SED_PRINT_SCRIPT.test(word)) return false;
+      script = true;
+    }
+  }
+  return script;
+}
 
 /** The words of a segment after `git` and its `-C`/`-c` options. */
 function gitSubcommand(segmentWords) {
@@ -139,9 +256,11 @@ function isChecker(name, segment) {
 /** True when a segment only reads (or runs a hook script). */
 function isReadOnly(segment) {
   const segmentWords = words(segment);
-  const program = baseName(segmentWords[0] ?? "").replace(/\.(?:exe|cmd)$/, "");
+  const program = programOf(segmentWords[0]);
 
+  if (READER_WRITES[program]?.test(segment)) return false;
   if (READERS.has(program)) return true;
+  if (program === "sed") return isReadOnlySed(segmentWords);
   if (program === "code" || program === "code-insiders") return true;
   if (program === "eslint" || program === "prettier") return isChecker(program, segment);
   if (RUNNERS.has(program)) {
@@ -205,12 +324,41 @@ function wordReachesClaude(word) {
     .some(reachesClaude);
 }
 
+/** True when a text names `.claude` / `.mcp.json` or has a glob that can reach it. */
+function mentionsAgentConfig(text) {
+  return MENTIONS_CLAUDE.test(text) || words(text).some(wordReachesClaude);
+}
+
+/**
+ * Reasons to block lines of a heredoc body that is data: only a line that
+ * reads like a write into `.claude` (a redirect there, or a writing program,
+ * interpreter or `cd` with a mention), since the saved file may be run later.
+ */
+function findWritesInData(lines) {
+  const reasons = [];
+
+  for (const line of lines) {
+    for (const variant of detectionVariants(line)) {
+      const text = withoutWorktrees(variant);
+      if (!mentionsAgentConfig(text)) continue;
+
+      if (REDIRECT_INTO.test(text) || WRITERS.has(programOf(words(text)[0]))) {
+        reasons.push(`treść heredoc wygląda na zapis do .claude/: "${line.trim()}"`);
+        break;
+      }
+    }
+  }
+  return reasons;
+}
+
 /** Reasons to block the command (an empty list lets it through). */
 export function findAgentConfigWrites(command) {
   if (typeof command !== "string") return [];
-  const reasons = new Set();
+  const { text: withoutData, data } = separateHeredocs(command);
+  const reasons = new Set(findWritesInData(data));
+  const masked = maskShellData(withoutData, { readers: READERS });
 
-  for (const variant of detectionVariants(command)) {
+  for (const variant of detectionVariants(masked)) {
     const text = withoutWorktrees(variant);
     const commandMentionsClaude = MENTIONS_CLAUDE.test(variant);
     // Nothing names `.claude` (not even a worktree) and no glob can reach it.
@@ -239,6 +387,12 @@ export function findAgentConfigWrites(command) {
       }
       if ((mentions || inside) && !isReadOnly(segment)) {
         reasons.add(`polecenie może zmienić .claude/: "${segment}"`);
+      } else if (
+        !mentions &&
+        MENTIONS_CLAUDE.test(text) &&
+        STDIN_RUNNERS.has(programOf(segmentWords[0]))
+      ) {
+        reasons.add(`interpreter w poleceniu, które wspomina .claude/: "${segment}"`);
       }
     }
   }

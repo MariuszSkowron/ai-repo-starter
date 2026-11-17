@@ -59,8 +59,17 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Audit dependencies (high and critical)
-        run: npm audit --audit-level=high
+      # Decyzja właściciela 2026-11-17: check czerwienieje tylko przy wysokich
+      # i krytycznych podatnościach zależności produkcyjnych. Pełny audyt (także
+      # narzędzia deweloperskie) tylko raportuje ostrzeżeniem w podsumowaniu.
+      - name: Audit production dependencies (high and critical, blocking)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit all dependencies (report only)
+        run: |
+          if ! npm audit; then
+            echo "::warning title=npm audit::Pełny audyt zależności (także deweloperskich) zgłasza podatności. Nie blokuje to checku; szczegóły w logu kroku 'Audit all dependencies'."
+          fi
 
       - name: Run required checks
         run: npm run check

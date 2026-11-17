@@ -83,6 +83,14 @@ const allowed = [
   "declare -i count=1",
   "declare -p PATH",
   "cat /proc/cpuinfo",
+  // Dry run 2026-11-17: "PR" and "merge" only as data in a message or a run log.
+  'git commit -m "fix: po review PR poprawiono merge konfliktów"',
+  "git commit -m 'docs: opis gh pr merge 5 --auto --squash'",
+  "git commit -m \"$(cat <<'EOF'\nfix: merge PR zgodnie z gh pr merge --admin\n\nCo-Authored-By: x\nEOF\n)\"",
+  'gh pr create --title "PR: merge kolejki" --body "Po merge PR #5"',
+  "gh pr create --title t --body \"$(cat <<'EOF'\nPo merge tego PR uruchom gh pr review.\nEOF\n)\"",
+  "gh issue comment 5 --body 'PR merge done'",
+  "cat > .ai/runs/x.md <<'EOF'\nPR #5: merge po zielonym CI.\nEOF",
 ];
 
 const blocked = [
@@ -251,6 +259,23 @@ const blocked = [
   "gh api repos/acme/app/collaborators/some-bot/permission -X PUT -f permission=admin",
   "gh secret set TOKEN",
   "gh secret delete TOKEN",
+  // Messages stay data only when they cannot run or expand anything.
+  'git commit -m "x"; gh pr merge 5 --admin',
+  'git commit -m "$GH_TOKEN merge PR"',
+  'gh pr comment 5 --body "$GH_TOKEN"',
+  'git commit -m "x `gh pr merge 5 --admin`"',
+  'git commit -m "$(gh pr merge 5 --admin)"',
+  "git commit -m \"$(cat <<'EOF'\nok\nEOF\n)\" && gh pr merge 5",
+  "git commit -m 'a' -m 'b'; gh pr review 5 -a",
+  "git commit -m “PR merge”; gh pr merge 5",
+  // A heredoc that is run, or a saved one with a real call or a token.
+  "cat <<'EOF' | bash\ngh pr merge 5 --admin\nEOF",
+  "bash <<'EOF'\ngh pr merge 5 --admin\nEOF",
+  "cat > run.sh <<'EOF'\ngh pr merge 5 --admin\nEOF",
+  "cat > run.sh <<'EOF'\ngh pr review 5 --approve\nEOF",
+  "cat > run.sh <<'EOF'\ngh api -X PUT repos/o/r/pulls/5/merge\nEOF",
+  "cat > notes.md <<EOF\n$GH_TOKEN\nEOF",
+  "cat > notes.md <<'EOF'\necho $GH_TOKEN\nEOF",
 ];
 
 describe("isAllowedMergeArgs", () => {

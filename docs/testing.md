@@ -62,7 +62,7 @@ Komputer lokalny wystarcza dla dwóch agentów, które budują lub testują, i k
 
 ## Kontrole bezpieczeństwa w CI
 
-Osobny wymagany job `gitleaks` skanuje całą historię w poszukiwaniu sekretów, job `check` uruchamia `npm audit --audit-level=high`, a job `guard` odrzuca pliki i odwołania prywatne (`docs/agent-workflow.md`). Akcje są przypięte do pełnych SHA commitów; Dependabot aktualizuje SHA i komentarz z wersją. Wynik czerwony traktuj jak czerwone testy: nie scalaj, dopóki nie zostanie wyjaśniony (wyciek sekretu wymaga rotacji, nie tylko usunięcia z historii).
+Osobny wymagany job `gitleaks` skanuje całą historię w poszukiwaniu sekretów, a job `guard` odrzuca pliki i odwołania prywatne (`docs/agent-workflow.md`). Job `check` czerwienieje tylko przy wysokich i krytycznych podatnościach zależności produkcyjnych (`npm audit --omit=dev --audit-level=high`). Pełny audyt, także narzędzi deweloperskich, tylko raportuje: przy znaleziskach dodaje ostrzeżenie do podsumowania przebiegu, ale nie blokuje checku (decyzja właściciela z 2026-11-17). Akcje są przypięte do pełnych SHA commitów; Dependabot aktualizuje SHA i komentarz z wersją. Wynik czerwony traktuj jak czerwone testy: nie scalaj, dopóki nie zostanie wyjaśniony (wyciek sekretu wymaga rotacji, nie tylko usunięcia z historii).
 
 ## Komendy
 

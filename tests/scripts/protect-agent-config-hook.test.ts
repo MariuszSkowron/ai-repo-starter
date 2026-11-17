@@ -79,6 +79,46 @@ const blocked = [
   "npx prettier --check .claude --write",
   "npx eslint .claude/hooks -o .claude/settings.json",
   "npx tsc .claude/hooks/a.mjs",
+  // sed writes with -i, a `w` command or a script file; only line ranges read.
+  "sed -ni 1p .claude/settings.json",
+  "sed --in-place 1d .claude/settings.json",
+  "sed -n 'w .claude/x' notes.md",
+  "sed -n '1p;w .claude/x' notes.md",
+  "sed -n -f script.sed .claude/settings.json",
+  "sed -n 1,20p .claude/settings.json > .claude/copy.json",
+  "sed -n 1p notes.md > .claude/settings.json",
+  // Readers with options that write or run a program.
+  "git diff --output=.claude/settings.json",
+  "rg --pre ./x.sh deny .claude",
+  "tree -o .claude/settings.json",
+  // Text piped into an interpreter.
+  "echo 'rm .claude/settings.json' | bash",
+  "echo .claude/settings.json | xargs rm",
+  "Write-Output 'Remove-Item .claude/settings.json' | iex",
+  // Heredocs: a write target on the command line, a body that is run or that
+  // reads like a write into .claude (the saved file may be run later).
+  "cat > .claude/settings.json <<'EOF'\n{}\nEOF",
+  "cat <<'EOF' > .claude/settings.json\n{}\nEOF",
+  "cat <<'EOF' | bash\necho x > .claude/settings.json\nEOF",
+  "bash <<'EOF'\nrm .claude/settings.json\nEOF",
+  "cat > run.sh <<'EOF'\nrm .claude/settings.json\nEOF\nbash run.sh",
+  "cat > run.sh <<'EOF'\necho x > .claude/settings.json\nEOF",
+  "cat > run.sh <<'EOF'\ncd .claude\nEOF",
+  "cat > notes.md <<EOF\n$(rm .claude/settings.json)\nEOF",
+  "cd .claude && cat > notes.md <<'EOF'\nhi\nEOF",
+  // Messages: substitutions, variables and a write next to the message.
+  'git commit -m "$(rm .claude/settings.json)"',
+  'git commit -m "`rm .claude/settings.json`"',
+  "git commit -m 'x'; rm .claude/settings.json",
+  "git commit -m 'a' && echo x > .claude/settings.json",
+  'gh pr create --title x --body "$X"; cp a .claude/settings.json',
+  "git commit -m \"$(cat <<'EOF'\nok\nEOF\n)\" && echo x > .claude/settings.json",
+  "git commit -m “x”; rm .claude/settings.json",
+  "grep x a \\' ; rm .claude/settings.json ; echo '",
+  "grep 'x' notes.md; rm .claude/settings.json",
+  // Fail closed: data with ambiguous quoting or a redirect next to a mention.
+  "echo 'zob. .claude/settings.json' > notes.txt",
+  "cat <<'EOF' | gh pr create --body-file -\nZmiana w .claude/settings.json\nEOF",
 ];
 
 const allowed = [
@@ -110,6 +150,25 @@ const allowed = [
   "cd src/.. && npm test",
   "cd ../other && ls",
   "ls * ",
+  // Dry run 2026-11-17: read-only sed and grep with quoted patterns.
+  "sed -n 1,20p .claude/settings.json",
+  "sed -n '1,20p' .claude/settings.json",
+  "sed -n -e 5p -e '$p' .claude/settings.json",
+  "sed 10q .claude/settings.json",
+  `grep -n '"allow"' .claude/settings.json`,
+  `grep -n '"allow"\\|"deny"' .claude/settings.json`,
+  "Select-String -Path .claude/settings.json -Pattern 'allow|deny'",
+  // Dry run 2026-11-17: `.claude` only as data (run log, message, PR body).
+  "cat > .ai/runs/x.md <<'EOF'\n# Run\nZmieniono .claude/settings.json (reguły deny).\nEOF",
+  "cat > .ai/runs/x.md <<EOF\nZmieniono .claude/settings.json\nEOF",
+  'git commit -m "fix: hook w .claude/hooks"',
+  "git commit -am 'docs: .claude/settings.json; opis'",
+  'gh pr create --title "Zmiana .claude" --body "zmiana w .claude/settings.json"',
+  'gh pr create --title x --body="opis .mcp.json"',
+  "git commit -m \"$(cat <<'EOF'\nfix: opis .claude/settings.json\n\nCo-Authored-By: x\nEOF\n)\"",
+  "gh pr create --title t --body \"$(cat <<'EOF'\nZmienia .claude/hooks.\nEOF\n)\"",
+  "git add .claude/hooks/a.mjs && git commit -m 'feat: hook .claude'",
+  "cd .claude/worktrees/ws-1 && node scripts/x.js",
 ];
 
 describe("findAgentConfigWrites", () => {
