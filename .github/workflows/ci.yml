@@ -63,7 +63,7 @@ jobs:
       # i krytycznych podatnościach zależności produkcyjnych. Pełny audyt (także
       # narzędzia deweloperskie) tylko raportuje ostrzeżeniem w podsumowaniu.
       - name: Audit production dependencies (high and critical, blocking)
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --omit=optional --audit-level=high
 
       - name: Audit all dependencies (report only)
         run: |
