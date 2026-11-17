@@ -43,17 +43,15 @@
 // repository's protection is changed only by the owner.
 //
 // The check reads the command text and is deliberately strict: anything it
-// cannot prove to be an allowed form is blocked. Data is not a command
-// (lib/shell-text.mjs, "Data inside a command"): the quoted message of
-// `git commit -m` and the `--title`/`--body` of `gh pr|issue
-// create|edit|comment` (single quotes, or double quotes without `$`), and the
-// body of a heredoc read by `cat` (`-m "$(cat <<'EOF' ... EOF)"`, a run log),
-// may say "PR" and "merge". A heredoc line is still checked for real `gh`
-// calls and token reads; only the word heuristics ("pr … merge", "gh … pr
-// review") are skipped there. Not data: `gh pr review --body` and `gh pr merge
-// --body` (still blocked with quotes), a message in double quotes with `$`,
-// and anything when the quoting is ambiguous (backticks, `$(`, `\"`); write
-// such a message from a file (`git commit -F <file>`, `--body-file`). The
+// cannot prove to be an allowed form is blocked. Only one kind of text is
+// data, not a command (lib/shell-text.mjs, "Message arguments"): the quoted
+// message of `git commit -m` and the quoted `--title`/`--body` of `gh pr|issue
+// create|edit|comment` may say "PR" and "merge", and only in a plain one-line
+// command (no newline, `#`, `$`, backtick, `(`, `{`, `|`, `<`, `>`, heredoc
+// or here-string, `\` before a quote, glued or typographic quotes). Not data:
+// `gh pr review --body` and `gh pr merge --body`, a heredoc body (every line
+// is checked like a command) and anything in a command that is not plain;
+// write such a message from a file (`git commit -F <file>`, `--body-file`). The
 // hook is a fence against mistakes, not the security boundary: that is the
 // ruleset and CODEOWNERS on GitHub.
 //
@@ -66,7 +64,6 @@ import {
   baseName,
   detectionVariants,
   maskShellData,
-  separateHeredocs,
   splitSegments,
   words,
 } from "./lib/shell-text.mjs";
@@ -419,11 +416,8 @@ function checkTokenExfiltration(rawSegment, variant) {
   return reasons;
 }
 
-/**
- * Reasons to block one command segment. `prose: false` (a line of heredoc
- * data) skips the word heuristics and keeps the checks of real calls.
- */
-function checkSegment(rawSegment, { prose = true } = {}) {
+/** Reasons to block one command segment. */
+function checkSegment(rawSegment) {
   const reasons = [];
   const rawWords = words(rawSegment);
   // A segment typed as plain words that starts with gh is parsed exactly;
@@ -439,11 +433,11 @@ function checkSegment(rawSegment, { prose = true } = {}) {
       reasons.push(...checkGhInvocation(variantWords.slice(index + 1), exact));
     });
 
-    if (prose && !trusted && MENTIONS_MERGE.test(variant)) {
+    if (!trusted && MENTIONS_MERGE.test(variant)) {
       reasons.push(`polecenie wspomina „pr merge” w formie, której nie da się sprawdzić`);
     }
     // Only with `gh` in the text: "fix after PR review" in a commit message is fine.
-    if (prose && !trusted && MENTIONS_GH.test(variant) && MENTIONS_REVIEW.test(variant)) {
+    if (!trusted && MENTIONS_GH.test(variant) && MENTIONS_REVIEW.test(variant)) {
       reasons.push(
         "gh pr review z cudzysłowem, zmienną lub nie na początku (treść podaj w --body-file)",
       );
@@ -458,13 +452,8 @@ function checkSegment(rawSegment, { prose = true } = {}) {
 /** Reasons to block the command (an empty list lets it through). */
 export function findPrGateViolations(command) {
   if (typeof command !== "string") return [];
-  const { text, data } = separateHeredocs(command);
-  const reasons = [
-    ...splitSegments(maskShellData(text)).flatMap((segment) => checkSegment(segment)),
-    ...splitSegments(data.join("\n")).flatMap((line) => checkSegment(line, { prose: false })),
-  ];
 
-  return [...new Set(reasons)];
+  return [...new Set(splitSegments(maskShellData(command)).flatMap(checkSegment))];
 }
 
 export function blockMessage(reasons) {

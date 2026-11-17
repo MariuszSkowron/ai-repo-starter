@@ -119,6 +119,22 @@ const blocked = [
   // Fail closed: data with ambiguous quoting or a redirect next to a mention.
   "echo 'zob. .claude/settings.json' > notes.txt",
   "cat <<'EOF' | gh pr create --body-file -\nZmiana w .claude/settings.json\nEOF",
+  // Since the review of 2026-11-17: a heredoc body is checked like a command,
+  // and a message is data only in a plain one-line command.
+  "cat > .ai/runs/x.md <<'EOF'\n# Run\nZmieniono .claude/settings.json (reguły deny).\nEOF",
+  "cat > .ai/runs/x.md <<EOF\nZmieniono .claude/settings.json\nEOF",
+  "git commit -m \"$(cat <<'EOF'\nfix: opis .claude/settings.json\n\nCo-Authored-By: x\nEOF\n)\"",
+  "gh pr create --title t --body \"$(cat <<'EOF'\nZmienia .claude/hooks.\nEOF\n)\"",
+  `grep -n '"allow"\\|"deny"' .claude/settings.json`,
+  "git commit -m 'x; rm .claude/settings.json' | bash",
+  "git commit -m 'echo x > .claude/settings.json' > run.sh; bash run.sh",
+  `git(){ bash -c "$2"; }; git commit -m 'rm -rf .claude'`,
+  "./git commit -m 'rm .claude/settings.json'",
+  "git commit -m 'a''rm .claude/settings.json'",
+  "git commit -m 'x' # .claude",
+  "git commit -m $'rm .claude/settings.json'",
+  "git commit -m @'\nrm .claude/settings.json\n'@",
+  'gh pr create --title "$X .claude" --body x',
 ];
 
 const allowed = [
@@ -156,17 +172,13 @@ const allowed = [
   "sed -n -e 5p -e '$p' .claude/settings.json",
   "sed 10q .claude/settings.json",
   `grep -n '"allow"' .claude/settings.json`,
-  `grep -n '"allow"\\|"deny"' .claude/settings.json`,
   "Select-String -Path .claude/settings.json -Pattern 'allow|deny'",
-  // Dry run 2026-11-17: `.claude` only as data (run log, message, PR body).
-  "cat > .ai/runs/x.md <<'EOF'\n# Run\nZmieniono .claude/settings.json (reguły deny).\nEOF",
-  "cat > .ai/runs/x.md <<EOF\nZmieniono .claude/settings.json\nEOF",
+  // Dry run 2026-11-17: `.claude` only as a message in a plain one-line command.
   'git commit -m "fix: hook w .claude/hooks"',
   "git commit -am 'docs: .claude/settings.json; opis'",
   'gh pr create --title "Zmiana .claude" --body "zmiana w .claude/settings.json"',
   'gh pr create --title x --body="opis .mcp.json"',
-  "git commit -m \"$(cat <<'EOF'\nfix: opis .claude/settings.json\n\nCo-Authored-By: x\nEOF\n)\"",
-  "gh pr create --title t --body \"$(cat <<'EOF'\nZmienia .claude/hooks.\nEOF\n)\"",
+  'gh pr create --title "PR #5: .claude" --body "zob. .claude/settings.json"',
   "git add .claude/hooks/a.mjs && git commit -m 'feat: hook .claude'",
   "cd .claude/worktrees/ws-1 && node scripts/x.js",
 ];

@@ -18,15 +18,16 @@
 // same protection as `.claude/`, and a `cd` through a glob or `..` that can
 // land in `.claude` counts as entering it.
 //
-// Text that is only data does not count as a mention (lib/shell-text.mjs,
-// "Data inside a command"): the quoted message of `git commit -m` and of
-// `gh pr|issue create|edit|comment --title/--body`, the body of a heredoc read
-// by `cat` (a run log: `cat > .ai/runs/x.md <<'EOF'`), and separators inside
-// the quoted arguments of a reader (`grep '"allow"\|"deny"' ...`). A heredoc
-// body line is still blocked when it reads like a write into `.claude`
-// (`> .claude/...`, `cp`, `rm`, `sed`, `node`, `cd` ...), because the saved
-// file may be run later. With ambiguous quoting (backticks, `$(`, `\"`, an
-// unclosed quote) nothing counts as data and the strict rules apply.
+// Only one kind of text counts as data, not as a mention
+// (lib/shell-text.mjs, "Message arguments"): the quoted message of
+// `git commit -m` and the quoted `--title/--body` of `gh pr|issue
+// create|edit|comment`, and only in a plain one-line command (no newline,
+// `#`, `$`, backtick, `(`, `{`, `|`, `<`, `>`, heredoc or here-string,
+// `\` before a quote, glued or typographic quotes). Otherwise the strict
+// rules apply to the whole text. A heredoc body is checked like any other
+// command text, so a run log that mentions `.claude` is blocked: write such a
+// file with the Write tool.
+//
 // Also blocked: an interpreter in a command that mentions `.claude` (`echo
 // 'rm .claude/x' | bash`, `| xargs rm`, `| iex`) and the writing options of
 // readers (`git diff --output`, `rg --pre`, `tree -o`).
@@ -47,7 +48,6 @@ import {
   detectionVariants,
   globToRegExp,
   maskShellData,
-  separateHeredocs,
   splitSegments,
   words,
 } from "./lib/shell-text.mjs";
@@ -150,51 +150,6 @@ const STDIN_RUNNERS = new Set([
   "source",
   ".",
 ]);
-// A heredoc body line that starts with one of these and mentions `.claude` is
-// blocked: the saved file may be run later.
-const WRITERS = new Set([
-  ...STDIN_RUNNERS,
-  ...CHANGE_DIRECTORY,
-  "cp",
-  "mv",
-  "rm",
-  "rmdir",
-  "rd",
-  "del",
-  "erase",
-  "copy",
-  "move",
-  "ren",
-  "ln",
-  "mklink",
-  "touch",
-  "tee",
-  "sed",
-  "awk",
-  "install",
-  "rsync",
-  "chmod",
-  "truncate",
-  "dd",
-  "git",
-  "npx",
-  "npm",
-  "set-content",
-  "add-content",
-  "clear-content",
-  "out-file",
-  "copy-item",
-  "cpi",
-  "move-item",
-  "mi",
-  "remove-item",
-  "ri",
-  "rename-item",
-  "rni",
-  "new-item",
-  "ni",
-]);
-
 /** The program name of a word, without `.exe` / `.cmd`. */
 const programOf = (word) => baseName(word ?? "").replace(/\.(?:exe|cmd)$/, "");
 
@@ -324,39 +279,11 @@ function wordReachesClaude(word) {
     .some(reachesClaude);
 }
 
-/** True when a text names `.claude` / `.mcp.json` or has a glob that can reach it. */
-function mentionsAgentConfig(text) {
-  return MENTIONS_CLAUDE.test(text) || words(text).some(wordReachesClaude);
-}
-
-/**
- * Reasons to block lines of a heredoc body that is data: only a line that
- * reads like a write into `.claude` (a redirect there, or a writing program,
- * interpreter or `cd` with a mention), since the saved file may be run later.
- */
-function findWritesInData(lines) {
-  const reasons = [];
-
-  for (const line of lines) {
-    for (const variant of detectionVariants(line)) {
-      const text = withoutWorktrees(variant);
-      if (!mentionsAgentConfig(text)) continue;
-
-      if (REDIRECT_INTO.test(text) || WRITERS.has(programOf(words(text)[0]))) {
-        reasons.push(`treść heredoc wygląda na zapis do .claude/: "${line.trim()}"`);
-        break;
-      }
-    }
-  }
-  return reasons;
-}
-
 /** Reasons to block the command (an empty list lets it through). */
 export function findAgentConfigWrites(command) {
   if (typeof command !== "string") return [];
-  const { text: withoutData, data } = separateHeredocs(command);
-  const reasons = new Set(findWritesInData(data));
-  const masked = maskShellData(withoutData, { readers: READERS });
+  const reasons = new Set();
+  const masked = maskShellData(command);
 
   for (const variant of detectionVariants(masked)) {
     const text = withoutWorktrees(variant);

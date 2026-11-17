@@ -83,14 +83,11 @@ const allowed = [
   "declare -i count=1",
   "declare -p PATH",
   "cat /proc/cpuinfo",
-  // Dry run 2026-11-17: "PR" and "merge" only as data in a message or a run log.
+  // Dry run 2026-11-17: "PR" and "merge" only as a message in a plain one-line command.
   'git commit -m "fix: po review PR poprawiono merge konfliktów"',
   "git commit -m 'docs: opis gh pr merge 5 --auto --squash'",
-  "git commit -m \"$(cat <<'EOF'\nfix: merge PR zgodnie z gh pr merge --admin\n\nCo-Authored-By: x\nEOF\n)\"",
   'gh pr create --title "PR: merge kolejki" --body "Po merge PR #5"',
-  "gh pr create --title t --body \"$(cat <<'EOF'\nPo merge tego PR uruchom gh pr review.\nEOF\n)\"",
   "gh issue comment 5 --body 'PR merge done'",
-  "cat > .ai/runs/x.md <<'EOF'\nPR #5: merge po zielonym CI.\nEOF",
 ];
 
 const blocked = [
@@ -276,6 +273,15 @@ const blocked = [
   "cat > run.sh <<'EOF'\ngh api -X PUT repos/o/r/pulls/5/merge\nEOF",
   "cat > notes.md <<EOF\n$GH_TOKEN\nEOF",
   "cat > notes.md <<'EOF'\necho $GH_TOKEN\nEOF",
+  // Since the review of 2026-11-17: a heredoc body is checked like a command,
+  // and a message is data only in a plain one-line command.
+  "git commit -m \"$(cat <<'EOF'\nfix: merge PR zgodnie z gh pr merge --admin\n\nCo-Authored-By: x\nEOF\n)\"",
+  "gh pr create --title t --body \"$(cat <<'EOF'\nPo merge tego PR uruchom gh pr review.\nEOF\n)\"",
+  "cat > .ai/runs/x.md <<'EOF'\nPR #5: merge po zielonym CI.\nEOF",
+  "git commit -m 'gh pr merge 5 --admin' | bash",
+  "git commit -m 'x' # gh pr merge 5 --admin",
+  "gh pr comment 5 --body 'gh pr merge 5 --admin' > run.sh",
+  "git commit -m $'gh pr merge 5 --admin'",
 ];
 
 describe("isAllowedMergeArgs", () => {
