@@ -2,6 +2,10 @@
   "permissions": {
     "defaultMode": "auto",
     "additionalDirectories": ["../ai-repo-starter-docs"],
+    "allow": [
+      "Bash(gh api -X POST repos/*/statuses/* -f state=* -f context=agent-review *)",
+      "Bash(gh api -X POST repos/*/statuses/* -f state=* -f context=security-review *)"
+    ],
     "deny": [
       "Read(**/.env)",
       "Read(**/.env.*)",

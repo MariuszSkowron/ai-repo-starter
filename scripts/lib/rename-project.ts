@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  ftruncateSync,
+  fstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import { join, relative, sep } from "node:path";
 
 // Logic of `npm run rename-project`: turns the template name into the name of
@@ -48,11 +57,17 @@ export function validateNames(slug: string, displayName: string): RenameNames {
     );
   }
 
-  if (slug === TEMPLATE) {
-    throw new RenameInputError("Slug must differ from the template name.");
+  // A name containing the template name would be renamed again by the later
+  // replacements (and by a second run), so the result would still contain it.
+  if (slug.includes(TEMPLATE)) {
+    throw new RenameInputError(`Slug must not contain the template name "${TEMPLATE}".`);
   }
 
   const name = displayName.trim();
+
+  if (name.toLowerCase().includes(TEMPLATE)) {
+    throw new RenameInputError(`Display name must not contain the template name "${TEMPLATE}".`);
+  }
 
   if (name.length === 0 || name.length > 60) {
     throw new RenameInputError("Display name must have 1 to 60 characters.");
@@ -142,29 +157,67 @@ export function listRenameableFiles(root: string): string[] {
 
 type LockFile = { name?: string; packages?: Record<string, { name?: string }> };
 
+/**
+ * Reads a regular file and writes back what `transform` returns, through one
+ * file descriptor, so the file cannot be swapped between the read and the write.
+ * Returns null when the path is missing or not a regular file, otherwise whether
+ * the file changed. `transform` returns null to leave the file as it is.
+ */
+function rewriteFile(path: string, transform: (content: Buffer) => string | null): boolean | null {
+  let fd: number;
+
+  try {
+    fd = openSync(path, "r+");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "EISDIR" || code === "EPERM" || code === "EACCES") {
+      return null;
+    }
+    throw error;
+  }
+
+  try {
+    if (!fstatSync(fd).isFile()) {
+      return null;
+    }
+
+    const original = readFileSync(fd);
+    const next = transform(original);
+
+    if (next === null || next === original.toString("utf8")) {
+      return false;
+    }
+
+    const bytes = Buffer.from(next, "utf8");
+    ftruncateSync(fd, 0);
+    writeSync(fd, bytes, 0, bytes.length, 0);
+    return true;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function renameLockfile(root: string, slug: string): boolean {
-  const path = join(root, "package-lock.json");
+  const changed = rewriteFile(join(root, "package-lock.json"), (content) => {
+    const lock = JSON.parse(content.toString("utf8")) as LockFile;
+    let renamed = false;
 
-  if (!existsSync(path)) {
-    return false;
-  }
+    if (lock.name === TEMPLATE) {
+      lock.name = slug;
+      renamed = true;
+    }
+    if (lock.packages?.[""]?.name === TEMPLATE) {
+      lock.packages[""].name = slug;
+      renamed = true;
+    }
 
-  const lock = JSON.parse(readFileSync(path, "utf8")) as LockFile;
-  let changed = false;
+    return renamed
+      ? `${JSON.stringify(lock, null, 2)}
+`
+      : null;
+  });
 
-  if (lock.name === TEMPLATE) {
-    lock.name = slug;
-    changed = true;
-  }
-  if (lock.packages?.[""]?.name === TEMPLATE) {
-    lock.packages[""].name = slug;
-    changed = true;
-  }
-  if (changed) {
-    writeFileSync(path, `${JSON.stringify(lock, null, 2)}\n`);
-  }
-
-  return changed;
+  return changed === true;
 }
 
 export type RenameResult = Readonly<{ changedFiles: string[]; lockfileUpdated: boolean }>;
@@ -174,23 +227,11 @@ export function renameProject(root: string, slug: string, displayName: string): 
   const changedFiles: string[] = [];
 
   for (const file of listRenameableFiles(root)) {
-    const path = join(root, file);
+    const changed = rewriteFile(join(root, file), (buffer) =>
+      looksBinary(buffer) ? null : renameText(buffer.toString("utf8"), names),
+    );
 
-    if (!existsSync(path) || !statSync(path).isFile()) {
-      continue;
-    }
-
-    const buffer = readFileSync(path);
-
-    if (looksBinary(buffer)) {
-      continue;
-    }
-
-    const original = buffer.toString("utf8");
-    const renamed = renameText(original, names);
-
-    if (renamed !== original) {
-      writeFileSync(path, renamed);
+    if (changed === true) {
       changedFiles.push(file);
     }
   }

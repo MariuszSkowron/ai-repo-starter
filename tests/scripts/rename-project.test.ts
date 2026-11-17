@@ -21,12 +21,21 @@ describe("validateNames", () => {
     expect(validateNames(slug, "Name")).toEqual({ slug, displayName: "Name" });
   });
 
-  it.each(["", "a", "1abc", "Demo", "demo-app", "demo app", "a".repeat(32), "zażółć", T])(
-    "rejects the slug %j",
-    (slug) => {
-      expect(() => validateNames(slug, "Name")).toThrow(RenameInputError);
-    },
-  );
+  it.each([
+    "",
+    "a",
+    "1abc",
+    "Demo",
+    "demo-app",
+    "demo app",
+    "a".repeat(32),
+    "zażółć",
+    T,
+    `proba_${T}a`,
+    `${T}_kit`,
+  ])("rejects the slug %j", (slug) => {
+    expect(() => validateNames(slug, "Name")).toThrow(RenameInputError);
+  });
 
   it.each(["", "   ", "x".repeat(61), 'a"b', "a\\b", "a`b", "a<b", "a&b", "a${b", "a\nb"])(
     "rejects the display name %j",

@@ -103,8 +103,8 @@ describe("OutboxEmailSender", () => {
     // The header block is pure ASCII; the Polish subject is in encoded words.
     expect(headers).toMatch(/^[\x00-\x7f]*$/);
     expect(headers).toContain("To: jan@example.com");
-    expect(headers).toContain("X-Starter-Tag: sign_in_code");
-    expect(headers).toContain("From: Starter <noreply@starter.local>");
+    expect(headers).toContain("X-App-Tag: sign_in_code");
+    expect(headers).toContain(`From: ${encodeHeaderValue("Starter")} <noreply@starter.local>`);
 
     const subjectBlock = /^Subject: (.*(?:\r\n .*)*)/m.exec(headers)![1]!;
     const decoded = [...subjectBlock.matchAll(/=\?UTF-8\?B\?([^?]+)\?=/g)]

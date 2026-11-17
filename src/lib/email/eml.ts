@@ -50,7 +50,7 @@ export function buildEml(message: EmailMessage, options: EmlOptions): string {
     `Subject: ${encodeHeaderValue(message.subject.replace(/[\r\n]+/g, " "))}`,
     `Date: ${options.date.toUTCString().replace(/ GMT$/, " +0000")}`,
     `Message-ID: <${options.messageId}>`,
-    `X-Starter-Tag: ${message.tag}`,
+    `X-App-Tag: ${message.tag}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${options.boundary}"`,
   ];
